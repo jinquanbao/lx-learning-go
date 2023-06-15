@@ -345,7 +345,7 @@ func (r *readSheet) readRow(columns []string) (err error) {
 					err = scan(fieldValue, v)
 				}
 
-				r.readCellContext.cellName = column.Name
+				r.readCellContext.titleName = column.Name
 				r.readCellContext.cellValue = v
 
 				for i := range r.listeners {

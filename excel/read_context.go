@@ -19,7 +19,7 @@ type ReadCellContext interface {
 	Sheet() ReadSheetContext
 	RowIndex() int
 	ColumnIndex() int
-	CellName() string
+	TitleName() string
 	CellValue() string
 }
 
@@ -40,7 +40,7 @@ type readCellContextOption struct {
 	readSheetContext *readSheetContextOption
 	rowIndex         int
 	columnIndex      int
-	cellName         string
+	titleName        string
 	cellValue        string
 }
 
@@ -84,8 +84,8 @@ func (r *readCellContextOption) ColumnIndex() int {
 	return r.columnIndex
 }
 
-func (r *readCellContextOption) CellName() string {
-	return r.cellName
+func (r *readCellContextOption) TitleName() string {
+	return r.titleName
 }
 
 func (r *readCellContextOption) CellValue() string {
