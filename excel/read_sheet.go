@@ -1,16 +1,17 @@
-package excel
+package excelutil
 
 import (
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/xuri/excelize/v2"
 )
 
-type readSheet struct {
-	readWorkbook               *readWorkbook
+type ReadSheet struct {
+	readWorkbook               *ReadWorkbook
 	option                     *readSheetOption
 	readSheetCompleteCallbacks []ReadSheetCompleteCallback
 	readCellCompleteCallbacks  []ReadCellCompleteCallback
@@ -18,9 +19,15 @@ type readSheet struct {
 	readSheetContext           *readSheetContextOption
 	readCellContext            *readCellContextOption
 	destIndirectValue          reflect.Value
+	elemType                   reflect.Type
+	elemMapValueIsInterface    bool
+	sourceTitles               []string
+	titleIndexMap              map[int]string
 	schema                     *schema
 	indexElemMap               map[int]elem
 	indexTimeColumnMap         map[int]*column
+	importTitles               []string
+	importFieldNames           []string
 }
 
 type (
@@ -30,36 +37,46 @@ type (
 	ReadCellCompleteCallback func(rCtx ReadCellContext, destElem interface{}, err error) error
 )
 
-func (r *readSheet) TitleRow(titleRow int) *readSheet {
+func (r *ReadSheet) TitleRow(titleRow int) *ReadSheet {
 	r.option.TitleRow = titleRow
 	return r
 }
 
-func (r *readSheet) TitleBeginColumn(titleBeginColumn int) *readSheet {
+func (r *ReadSheet) TitleBeginColumn(titleBeginColumn int) *ReadSheet {
 	r.option.TitleBeginColumn = titleBeginColumn
 	return r
 }
 
-func (r *readSheet) RegisterReadSheetCompleteCallbacks(opts ...ReadSheetCompleteCallback) *readSheet {
+func (r *ReadSheet) ContentBeginRow(contentBeginRow int) *ReadSheet {
+	r.option.ContentBeginRow = contentBeginRow
+	return r
+}
+
+func (r *ReadSheet) DisableAutoMatchTitleLength(disableAutoMatchTitleLength bool) *ReadSheet {
+	r.option.DisableAutoMatchTitleLength = disableAutoMatchTitleLength
+	return r
+}
+
+func (r *ReadSheet) TimeTitles(timeTitles ...string) *ReadSheet {
+	r.option.TimeTitles = timeTitles
+	return r
+}
+
+func (r *ReadSheet) RegisterReadSheetCompleteCallbacks(opts ...ReadSheetCompleteCallback) *ReadSheet {
 	r.readSheetCompleteCallbacks = opts
 	return r
 }
 
-func (r *readSheet) RegisterReadCellCompleteCallbacks(opts ...ReadCellCompleteCallback) *readSheet {
+func (r *ReadSheet) RegisterReadCellCompleteCallbacks(opts ...ReadCellCompleteCallback) *ReadSheet {
 	r.readCellCompleteCallbacks = opts
 	return r
 }
 
-//func (r *readSheet) RegisterReadListener(listeners ...ReadListener) *readSheet {
-//	r.listeners = listeners
-//	return r
-//}
-
-func (r *readSheet) Read() (err error) {
+func (r *ReadSheet) Read() (err error) {
 	return r.readWorkbook.ReadSheets(r).Read()
 }
 
-func (r *readSheet) preRead() (err error) {
+func (r *ReadSheet) preRead() (err error) {
 	dest := r.option.Dest
 
 	val := reflect.ValueOf(dest)
@@ -77,44 +94,76 @@ func (r *readSheet) preRead() (err error) {
 		elemTyp = elemTyp.Elem()
 	}
 
-	if elemTyp.Kind() != reflect.Struct {
+	r.elemType = elemTyp
+	r.destIndirectValue = val.Elem()
+
+	switch elemTyp.Kind() {
+	case reflect.Struct:
+		schema, err := newSchema(r.destIndirectValue)
+		if err != nil {
+			return err
+		}
+		if err = schema.initialization(); err != nil {
+			return err
+		}
+		r.schema = schema
+		if err = r.readTitle(); err != nil {
+			return err
+		}
+		if err = r.computeStructTitle(); err != nil {
+			return err
+		}
+		break
+	case reflect.Map:
+		if elemTyp.Key().Kind() != reflect.String {
+			return ErrInputDestMapElem
+		}
+		elemMapValueType := elemTyp.Elem()
+		if elemMapValueType.Kind() != reflect.String && elemMapValueType.Kind() != reflect.Interface {
+			return ErrInputDestMapElem
+		}
+		r.elemMapValueIsInterface = elemMapValueType.Kind() == reflect.Interface
+		if err = r.readTitle(); err != nil {
+			return err
+		}
+		break
+	default:
 		return ErrInputDestElem
 	}
 
-	r.destIndirectValue = val.Elem()
-
-	schema, err := newSchema(r.destIndirectValue)
-	if err != nil {
-		return err
-	}
-	if err = schema.initialization(); err != nil {
-		return err
-	}
-
-	r.schema = schema
-
-	if err = r.readTitle(); err != nil {
-		return err
-	}
-
 	r.readSheetContext = &readSheetContextOption{
-		file:             r.readWorkbook.file,
+		file:             r.readWorkbook.File,
 		sheetNo:          r.option.SheetNo,
 		sheetName:        r.option.SheetName,
 		titleRow:         r.option.TitleRow,
 		titleBeginColumn: r.option.TitleBeginColumn,
+		fieldNames:       r.importFieldNames,
 	}
 
 	r.readCellContext = &readCellContextOption{
-		file:             r.readWorkbook.file,
+		file:             r.readWorkbook.File,
 		readSheetContext: r.readSheetContext,
+		lastColumnIndex:  len(r.sourceTitles) - 1,
 	}
 
+	if elemTyp.Kind() == reflect.Map {
+		for i := r.option.TitleBeginColumn; i < len(r.sourceTitles); i++ {
+			r.readCellContext.rowIndex = r.option.TitleRow
+			r.readCellContext.columnIndex = i
+			r.readCellContext.titleName = r.sourceTitles[i]
+			r.readCellContext.cellValue = r.sourceTitles[i]
+			for _, callback := range r.readCellCompleteCallbacks {
+				if err = callback(r.readCellContext, make(map[string]interface{}), err); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	return nil
 }
 
-func (r *readSheet) readTitle() (err error) {
-	file := r.readWorkbook.file
+func (r *ReadSheet) readTitle() (err error) {
+	file := r.readWorkbook.File
 
 	rows, err := file.Rows(r.option.SheetName)
 	if err != nil {
@@ -132,18 +181,31 @@ func (r *readSheet) readTitle() (err error) {
 		}
 		cur++
 	}
-	titleCount := 0
+
+	titleIndexMap := make(map[int]string)
 	for i := r.option.TitleBeginColumn; i < len(titles); i++ {
 		v := strings.TrimSpace(titles[i])
 		titles[i] = v
 		if v == "" {
 			continue
 		}
-		titleCount++
+		r.importTitles = append(r.importTitles, v)
+		titleIndexMap[i] = v
 	}
+	r.sourceTitles = titles
+	r.titleIndexMap = titleIndexMap
 
+	return nil
+}
+
+func (r *ReadSheet) computeStructTitle() error {
+	var (
+		titleIndexMap = r.titleIndexMap
+		schema        = r.schema
+		titleCount    = len(r.titleIndexMap)
+	)
 	titleMap := make(map[string][]int)
-	for i, v := range titles {
+	for i, v := range r.sourceTitles {
 		if v == "" {
 			continue
 		}
@@ -154,8 +216,6 @@ func (r *readSheet) readTitle() (err error) {
 			titleMap[v] = []int{i}
 		}
 	}
-
-	schema := r.schema
 
 	indexColumnMap := schema.IndexColumnMap
 	indexElemMap := schema.IndexElemMap
@@ -224,13 +284,15 @@ func (r *readSheet) readTitle() (err error) {
 				}
 			}
 
-		} else {
+		} else if !r.option.DisableAutoMatchTitleLength {
 			fmt.Println("excel column name [" + column.Name + "] not exist")
 			return ErrTitleNotMatch
 		}
 	}
 
-	if titleCount != len(indexColumnMap) {
+	if titleCount > len(indexColumnMap) || titleCount == 0 {
+		return ErrTitleNotMatch
+	} else if titleCount != len(indexColumnMap) && !r.option.DisableAutoMatchTitleLength {
 		fmt.Println("excel title cells not match struct fields")
 		return ErrTitleNotMatch
 	}
@@ -239,57 +301,42 @@ func (r *readSheet) readTitle() (err error) {
 	r.indexElemMap = indexElemMap
 	r.indexTimeColumnMap = indexTimeColumnMap
 
+	for index := range titleIndexMap {
+		fileName := indexColumnMap[index].FieldName
+		if len(fileName) > 0 && !containStr(r.importFieldNames, fileName) {
+			r.importFieldNames = append(r.importFieldNames, fileName)
+		}
+	}
 	return nil
 }
 
-func (r *readSheet) doRead() (err error) {
-	file := r.readWorkbook.file
+func (r *ReadSheet) doRead() (err error) {
+	file := r.readWorkbook.File
 
 	rows, err := file.GetRows(r.option.SheetName, r.readWorkbook.option.options...)
 	if err != nil {
 		return err
 	}
-	// fmt.Println("excel read complete " + time.Now().String())
-	r.destIndirectValue.Set(reflect.MakeSlice(r.destIndirectValue.Type(), 0, len(rows)))
 
-	// excel 日期格式数字值
-	numFmtTimeStyle, err := file.NewStyle(&excelize.Style{NumFmt: 0})
-	timeStyleMap := make(map[int]int)
-	for col := range r.indexTimeColumnMap {
-		cellName, _ := excelize.CoordinatesToCellName(col+1, r.option.TitleRow+2)
-		style, _ := file.GetCellStyle(r.option.SheetName, cellName)
-		timeStyleMap[col] = style
-		vCell, _ := excelize.CoordinatesToCellName(col+1, len(rows))
-		file.SetCellStyle(r.option.SheetName, cellName, vCell, numFmtTimeStyle)
+	r.destIndirectValue.Set(reflect.MakeSlice(r.destIndirectValue.Type(), 0, len(rows)))
+	contentBeginRow := r.option.ContentBeginRow
+	if contentBeginRow <= r.option.TitleRow {
+		contentBeginRow = r.option.TitleRow + 1
 	}
 
-	for i := r.option.TitleRow + 1; i < len(rows); i++ {
-
-		r.readCellContext.rowIndex = i
-
-		columns := rows[i]
-
-		for col := range r.indexTimeColumnMap {
-			if len(columns) > col {
-				cellName, _ := excelize.CoordinatesToCellName(col+1, i+1)
-				if cellTime, err := file.GetCellValue(r.option.SheetName, cellName); err == nil {
-					columns[col] = cellTime
-				}
-			}
-		}
-
-		if err = r.readRow(columns); err != nil {
+	switch r.elemType.Kind() {
+	case reflect.Struct:
+		if err = r.readToSliceStruct(contentBeginRow, rows); err != nil {
 			return err
 		}
-	}
-
-	// 恢复原有样式
-	for col := range r.indexTimeColumnMap {
-		if style, ok := timeStyleMap[col]; ok {
-			cellName, _ := excelize.CoordinatesToCellName(col+1, r.option.TitleRow+2)
-			vCell, _ := excelize.CoordinatesToCellName(col+1, len(rows))
-			file.SetCellStyle(r.option.SheetName, cellName, vCell, style)
+		break
+	case reflect.Map:
+		if err = r.readToSliceMap(contentBeginRow, rows); err != nil {
+			return err
 		}
+		break
+	default:
+		return ErrInputDestElem
 	}
 
 	for i := range r.listeners {
@@ -304,10 +351,56 @@ func (r *readSheet) doRead() (err error) {
 		}
 	}
 
+	return err
+}
+
+func (r *ReadSheet) readToSliceStruct(contentBeginRow int, rows [][]string) (err error) {
+	file := r.readWorkbook.File
+	// excel 日期格式数字值
+	numFmtTimeStyle, err := file.NewStyle(&excelize.Style{NumFmt: 0})
+	if err != nil {
+		return err
+	}
+
+	for i := contentBeginRow; i < len(rows); i++ {
+
+		r.readCellContext.rowIndex = i
+
+		columns := rows[i]
+
+		timeStyleMap := make(map[int]int)
+		for col := range r.indexTimeColumnMap {
+			if len(columns) > col {
+				cellName, _ := excelize.CoordinatesToCellName(col+1, i+1)
+
+				style, _ := file.GetCellStyle(r.option.SheetName, cellName)
+				timeStyleMap[col] = style
+				file.SetCellStyle(r.option.SheetName, cellName, cellName, numFmtTimeStyle)
+
+				if cellTime, err := file.GetCellValue(r.option.SheetName, cellName); err == nil {
+					columns[col] = cellTime
+				}
+			}
+		}
+
+		if err = r.readToStruct(columns); err != nil {
+			return err
+		}
+
+		// 恢复原有样式
+		for col := range r.indexTimeColumnMap {
+			if len(columns) > col {
+				if style, ok := timeStyleMap[col]; ok {
+					cellName, _ := excelize.CoordinatesToCellName(col+1, i+1)
+					file.SetCellStyle(r.option.SheetName, cellName, cellName, style)
+				}
+			}
+		}
+	}
 	return nil
 }
 
-func (r *readSheet) readRow(columns []string) (err error) {
+func (r *ReadSheet) readToStruct(columns []string) (err error) {
 	sourceVal := r.schema.getNextElemValue(r.destIndirectValue)
 
 	elemValueMap := make(map[elem]reflect.Value)
@@ -369,6 +462,97 @@ func (r *readSheet) readRow(columns []string) (err error) {
 	return nil
 }
 
-func (r *readSheet) Close() (err error) {
+func (r *ReadSheet) readToSliceMap(contentBeginRow int, rows [][]string) (err error) {
+	for i := contentBeginRow; i < len(rows); i++ {
+		r.readCellContext.rowIndex = i
+		if err = r.readToMap(i, rows[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *ReadSheet) readToMap(rowIndex int, columns []string) (err error) {
+	var indexTimeList []int
+	for i, titleName := range r.sourceTitles {
+		if containStr(r.option.TimeTitles, titleName) {
+			indexTimeList = append(indexTimeList, i)
+		}
+	}
+
+	sourceVal := r.schema.getNextElemValue(r.destIndirectValue)
+	sourceVal.Set(reflect.MakeMapWithSize(r.elemType, len(r.titleIndexMap)))
+
+	for i := r.option.TitleBeginColumn; i < len(columns); i++ {
+		v := strings.TrimSpace(columns[i])
+		titleName, ok := r.titleIndexMap[i]
+		if ok {
+			if containInt(indexTimeList, i) && r.elemMapValueIsInterface {
+				timeVal, err := r.parseTimeValue(rowIndex, i)
+				if err != nil {
+					sourceVal.SetMapIndex(reflect.ValueOf(titleName), reflect.ValueOf(v))
+				} else {
+					sourceVal.SetMapIndex(reflect.ValueOf(titleName), reflect.ValueOf(timeVal))
+				}
+			} else {
+				sourceVal.SetMapIndex(reflect.ValueOf(titleName), reflect.ValueOf(v))
+			}
+		}
+
+		r.readCellContext.columnIndex = i
+		r.readCellContext.titleName = titleName
+		r.readCellContext.cellValue = v
+
+		for i := range r.listeners {
+			if err = r.listeners[i].ReadCellCompleteTrigger(r.readCellContext, sourceVal.Addr().Interface(), err); err != nil {
+				return err
+			}
+		}
+		for _, callback := range r.readCellCompleteCallbacks {
+			if err = callback(r.readCellContext, sourceVal.Addr().Interface(), err); err != nil {
+				return err
+			}
+		}
+	}
+
+	for i := len(columns); i < len(r.sourceTitles); i++ {
+		titleName, ok := r.titleIndexMap[i]
+		if !ok {
+			continue
+		}
+		// fill default value to column not read.
+		sourceVal.SetMapIndex(reflect.ValueOf(titleName), reflect.ValueOf(""))
+	}
+
+	return nil
+}
+
+func (r *ReadSheet) parseTimeValue(rowIndex, col int) (res time.Time, err error) {
+	var cellTime string
+	cellName, _ := excelize.CoordinatesToCellName(col+1, rowIndex+1)
+	styleId, _ := r.readWorkbook.File.GetCellStyle(r.option.SheetName, cellName)
+	_ = r.readWorkbook.File.SetCellStyle(r.option.SheetName, cellName, cellName, r.readWorkbook.NumFmtTimeStyleId)
+
+	defer func() {
+		// 恢复原有样式
+		_ = r.readWorkbook.File.SetCellStyle(r.option.SheetName, cellName, cellName, styleId)
+	}()
+
+	if cellTime, err = r.readWorkbook.File.GetCellValue(r.option.SheetName, cellName); err != nil {
+		return res, err
+	}
+
+	if cellTime == "" {
+		return res, nil
+	}
+	timeNum, e := strconv.ParseFloat(cellTime, 10)
+	if e != nil {
+		return convertTime(cellTime)
+	} else {
+		return excelize.ExcelDateToTime(timeNum, false)
+	}
+}
+
+func (r *ReadSheet) Close() (err error) {
 	return nil
 }

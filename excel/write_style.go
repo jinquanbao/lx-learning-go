@@ -1,11 +1,10 @@
-package excel
+package excelutil
 
 import "github.com/xuri/excelize/v2"
 
 var defaultStyle = &style{}
 
-type style struct {
-}
+type style struct{}
 
 func (s *style) newDefaultTitleStyleId(file *excelize.File) (int, error) {
 	styleID, err := file.NewStyle(&excelize.Style{

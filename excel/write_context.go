@@ -1,4 +1,4 @@
-package excel
+package excelutil
 
 import "github.com/xuri/excelize/v2"
 
@@ -27,7 +27,9 @@ type WriteCellContext interface {
 	Sheet() WriteSheetContext
 	RowIndex() int
 	ColumnIndex() int
+	FieldName() string
 	TitleName() string
+	FieldIsTime() bool
 }
 
 type writeContextOption struct {
@@ -96,7 +98,9 @@ type writeCellContextOption struct {
 	writeSheetContext *writeSheetContextOption
 	rowIndex          int
 	columnIndex       int
+	fieldName         string
 	titleName         string
+	fieldIsTime       bool
 }
 
 func (r *writeCellContextOption) File() *excelize.File {
@@ -115,6 +119,14 @@ func (r *writeCellContextOption) ColumnIndex() int {
 	return r.columnIndex
 }
 
+func (r *writeCellContextOption) FieldName() string {
+	return r.fieldName
+}
+
 func (r *writeCellContextOption) TitleName() string {
 	return r.titleName
+}
+
+func (r *writeCellContextOption) FieldIsTime() bool {
+	return r.fieldIsTime
 }

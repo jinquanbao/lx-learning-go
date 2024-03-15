@@ -1,4 +1,4 @@
-package excel
+package excelutil
 
 import (
 	"fmt"
@@ -32,6 +32,7 @@ type schema struct {
 
 type column struct {
 	FieldIndex  int
+	FieldName   string
 	FieldIsTime bool
 	Index       int
 	Cell        string
@@ -85,6 +86,7 @@ func (s *schema) parse() (err error) {
 					return ErrParseTag
 				}
 				c.FieldIndex = i
+				c.FieldName = field.Name
 				c.FieldIsTime = isTime(field.Type)
 				if len(c.Name) == 0 {
 					c.Name = field.Name
@@ -103,6 +105,7 @@ func (s *schema) parse() (err error) {
 			} else {
 				c := s.newColumn()
 				c.FieldIndex = i
+				c.FieldName = field.Name
 				c.FieldIsTime = isTime(field.Type)
 				c.Name = field.Name
 				columns = append(columns, c)

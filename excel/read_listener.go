@@ -1,4 +1,4 @@
-package excel
+package excelutil
 
 type ReadListener interface {
 	// interface is option's dest without ptr

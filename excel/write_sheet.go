@@ -1,16 +1,17 @@
-package excel
+package excelutil
 
 import (
 	"fmt"
-	"github.com/xuri/excelize/v2"
 	"reflect"
 	"sort"
 	"time"
+
+	"github.com/xuri/excelize/v2"
 )
 
 type writeSheet struct {
 	streamWriter                *excelize.StreamWriter
-	writeWorkbook               *writeWorkbook
+	writeWorkbook               *WriteWorkbook
 	option                      *writeSheetOption
 	writeSheetBeforeCallbacks   []WriteSheetBeforeCallback
 	writeSheetCompleteCallbacks []WriteSheetCompleteCallback
@@ -24,13 +25,6 @@ type writeSheet struct {
 	destIndirectValue           reflect.Value
 }
 
-type (
-	WriteSheetBeforeCallback   func(wCtx WriteSheetContext) error
-	WriteSheetCompleteCallback func(wCtx WriteSheetContext) error
-	WriteCellBeforeCallback    func(wCtx WriteCellContext, isTitle bool, cell *excelize.Cell) error
-	WriteRowBeforeCallback     func(wCtx WriteRowContext, isTitle bool, row *[]interface{}) error
-)
-
 func (w *writeSheet) Titles(titles ...string) *writeSheet {
 	w.option.Titles = titles
 	return w
@@ -38,6 +32,11 @@ func (w *writeSheet) Titles(titles ...string) *writeSheet {
 
 func (w *writeSheet) TitleRow(titleRow int) *writeSheet {
 	w.option.TitleRow = titleRow
+	return w
+}
+
+func (w *writeSheet) ContentBeginRow(contentBeginRow int) *writeSheet {
+	w.option.ContentBeginRow = contentBeginRow
 	return w
 }
 
@@ -70,6 +69,7 @@ func (w *writeSheet) RegisterWriteSheetBeforeCallbacks(opts ...WriteSheetBeforeC
 	w.writeSheetBeforeCallbacks = opts
 	return w
 }
+
 func (w *writeSheet) RegisterWriteSheetCompleteCallbacks(opts ...WriteSheetCompleteCallback) *writeSheet {
 	w.writeSheetCompleteCallbacks = opts
 	return w
@@ -87,6 +87,10 @@ func (w *writeSheet) RegisterWriteRowBeforeCallbacks(opts ...WriteRowBeforeCallb
 
 func (w *writeSheet) Write() error {
 	return w.writeWorkbook.WriteSheets(w).Write()
+}
+
+func (w *writeSheet) getOption() *writeSheetOption {
+	return w.option
 }
 
 func (w *writeSheet) preWrite() error {
@@ -118,8 +122,7 @@ func (w *writeSheet) preWrite() error {
 			continue
 		}
 
-		fieldName := schema.ElemType.Field(column.FieldIndex).Name
-		if containStr(w.option.ExcludeColumnFieldNames, fieldName) {
+		if containStr(w.option.ExcludeColumnFieldNames, column.FieldName) {
 			continue
 		}
 
@@ -127,7 +130,7 @@ func (w *writeSheet) preWrite() error {
 		if len(w.option.IncludeTitleNames) > 0 && !containStr(w.option.IncludeTitleNames, column.Name) {
 			writeTitle = false
 		}
-		if len(w.option.IncludeColumnFieldNames) > 0 && !containStr(w.option.IncludeColumnFieldNames, fieldName) {
+		if len(w.option.IncludeColumnFieldNames) > 0 && !containStr(w.option.IncludeColumnFieldNames, column.FieldName) {
 			writeTitle = false
 		}
 
@@ -188,11 +191,9 @@ func (w *writeSheet) doWrite() (err error) {
 	} else {
 		panic("not support yet")
 	}
-	return nil
 }
 
 func (w *writeSheet) streamWrite() error {
-
 	writeRowContext := &writeRowContextOption{
 		writeSheetContext: w.writeSheetContext,
 		rowIndex:          w.option.TitleRow,
@@ -210,6 +211,7 @@ func (w *writeSheet) streamWrite() error {
 
 		columnIndex := i + w.option.TitleBeginColumn
 		writeCellContext.columnIndex = columnIndex
+		writeCellContext.fieldName = v.FieldName
 		writeCellContext.titleName = v.Name
 
 		for _, opt := range w.writeCellBeforeCallbacks {
@@ -218,7 +220,6 @@ func (w *writeSheet) streamWrite() error {
 			}
 		}
 		titleCells = append(titleCells, cell)
-		//titleCells[columnIndex] = cell
 	}
 
 	for _, opt := range w.writeRowBeforeCallbacks {
@@ -234,11 +235,16 @@ func (w *writeSheet) streamWrite() error {
 		return err
 	}
 
+	contentBeginRow := w.option.TitleRow + 1
+	if contentBeginRow < w.option.ContentBeginRow {
+		contentBeginRow = w.option.ContentBeginRow
+	}
+
 	for rowID := 0; rowID < w.destIndirectValue.Len(); rowID++ {
 		row := make([]interface{}, w.option.TitleBeginColumn, len(w.titles)+w.option.TitleBeginColumn)
 		elem := w.destIndirectValue.Index(rowID)
 
-		rowIndex := rowID + w.option.TitleRow + 1
+		rowIndex := rowID + contentBeginRow
 		writeRowContext.rowIndex = rowIndex
 
 		for i, column := range w.titles {
@@ -258,7 +264,9 @@ func (w *writeSheet) streamWrite() error {
 			columnIndex := i + w.option.TitleBeginColumn
 			writeCellContext.rowIndex = rowIndex
 			writeCellContext.columnIndex = columnIndex
+			writeCellContext.fieldName = column.FieldName
 			writeCellContext.titleName = column.Name
+			writeCellContext.fieldIsTime = column.FieldIsTime
 			for _, opt := range w.writeCellBeforeCallbacks {
 				if err = opt(writeCellContext, false, &cell); err != nil {
 					return err
@@ -266,7 +274,6 @@ func (w *writeSheet) streamWrite() error {
 			}
 
 			row = append(row, cell)
-			//row[columnIndex] = cell
 		}
 
 		for _, opt := range w.writeRowBeforeCallbacks {

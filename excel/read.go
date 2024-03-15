@@ -1,4 +1,4 @@
-package excel
+package excelutil
 
 type Reader interface {
 	Read() error
@@ -7,8 +7,8 @@ type Reader interface {
 
 type FileReader interface {
 	ReadCompleteCallbacks(readCompleteCallbacks ...ReadCompleteCallback) FileReader
-	ReadSheets(readSheets ...*readSheet) Reader
-	ReadSheetNo(sheetNo int, dest interface{}) *readSheet
-	ReadSheetName(sheetName string, dest interface{}) *readSheet
+	ReadSheets(readSheets ...*ReadSheet) Reader
+	ReadSheetNo(sheetNo int, dest interface{}) *ReadSheet
+	ReadSheetName(sheetName string, dest interface{}) *ReadSheet
 	Close() error
 }

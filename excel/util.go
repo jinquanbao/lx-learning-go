@@ -1,4 +1,4 @@
-package excel
+package excelutil
 
 func containInt(arr []int, target int) bool {
 	for i := 0; i < len(arr); i++ {

@@ -1,11 +1,12 @@
-package excel
+package excelutil
 
 import "errors"
 
 var (
 	ErrInputFile              = errors.New("reader or filePath must one not be null")
 	ErrInputDest              = errors.New("excel reader/writer dest must be ptr to slice")
-	ErrInputDestElem          = errors.New("excel reader/writer dest elem must be struct")
+	ErrInputDestElem          = errors.New("excel reader/writer dest elem must be struct or map")
+	ErrInputDestMapElem       = errors.New("excel reader dest map elem must be map[string]string")
 	ErrTitleRow               = errors.New("title row must grater than or equal to 0")
 	ErrTitleBeginColumn       = errors.New("title begin column must grater than or equal to 0")
 	ErrTitleNotMatch          = errors.New("title not match")

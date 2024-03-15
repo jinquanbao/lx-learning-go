@@ -1,4 +1,4 @@
-package excel
+package excelutil
 
 import "github.com/xuri/excelize/v2"
 
@@ -16,8 +16,9 @@ type writeSheetOption struct {
 	SheetNo                 int
 	SheetName               string
 	StreamWriter            bool
-	Titles                  []string //dynamic Titles
+	Titles                  []string // dynamic Titles
 	TitleRow                int
+	ContentBeginRow         int
 	TitleBeginColumn        int
 	IncludeTitleNames       []string
 	ExcludeTitleNames       []string

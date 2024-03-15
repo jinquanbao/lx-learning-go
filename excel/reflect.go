@@ -1,8 +1,10 @@
-package excel
+package excelutil
 
 import (
+	"errors"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/xuri/excelize/v2"
@@ -68,13 +70,72 @@ func scan(v reflect.Value, value string) (err error) {
 	case *time.Time:
 		timeNum, e := strconv.ParseFloat(value, 10)
 		if e != nil {
-			return e
+			// return e
+			*p, err = convertTime(value)
+		} else {
+			*p, err = excelize.ExcelDateToTime(timeNum, false)
 		}
-		*p, err = excelize.ExcelDateToTime(timeNum, false)
+
 	default:
 		err = ErrReflectValueType
 	}
 	return err
+}
+
+func convertTime(timeStrInput string) (res time.Time, err error) {
+	if len(timeStrInput) > 0 {
+		timeStr := strings.ReplaceAll(timeStrInput, "/", "")
+		timeStr = strings.ReplaceAll(timeStr, "-", "")
+		if len(timeStr) == 8 {
+			res, err = parseTime("20060102", timeStr)
+		} else if len(timeStr) == 11 {
+			res, err = parseTime("20060102 15", timeStr)
+		} else if len(timeStr) == 14 {
+			res, err = parseTime("20060102 15:04", timeStr)
+		} else if len(timeStr) == 17 {
+			res, err = parseTime("20060102 15:04:05", timeStr)
+		} else if len(timeStr) == 21 {
+			res, err = parseTime("20060102 15:04:05.000", timeStr)
+		} else {
+			err = errors.New("bad value for timeStr")
+		}
+		if err != nil {
+			timeStr = strings.ReplaceAll(timeStrInput, "-", "/")
+			if len(timeStr) == 8 {
+				res, err = parseTime("2006/1/2", timeStr)
+			} else if len(timeStr) == 9 {
+				res, err = parseTime("2006/01/2", timeStr)
+				if err != nil {
+					res, err = parseTime("2006/1/02", timeStr)
+				}
+			} else if len(timeStr) == 11 {
+				res, err = parseTime("2006/1/2 15", timeStr)
+			} else if len(timeStr) == 12 {
+				res, err = parseTime("2006/01/2 15", timeStr)
+				if err != nil {
+					res, err = parseTime("2006/1/02 15", timeStr)
+				}
+			} else if len(timeStr) == 14 {
+				res, err = parseTime("2006/1/2 15:04", timeStr)
+			} else if len(timeStr) == 15 {
+				res, err = parseTime("2006/1/02 15:04", timeStr)
+				if err != nil {
+					res, err = parseTime("2006/01/2 15:04", timeStr)
+				}
+			} else if len(timeStr) == 17 {
+				res, err = parseTime("2006/1/2 15:04:05", timeStr)
+			} else if len(timeStr) == 18 {
+				res, err = parseTime("2006/1/02 15:04:05", timeStr)
+				if err != nil {
+					res, err = parseTime("2006/01/2 15:04:05", timeStr)
+				}
+			}
+		}
+	}
+	//else {
+	//	res, err = time.Parse("2006-01-02 15:04:05.000", "0001-01-01 00:00:00.000")
+	//}
+	return res, err
 }
 
 func isSlice(typ reflect.Type) bool {
@@ -91,4 +152,8 @@ func isTime(typ reflect.Type) bool {
 		return true
 	}
 	return false
+}
+
+func parseTime(layout, value string) (time.Time, error) {
+	return time.ParseInLocation(layout, value, time.Local)
 }

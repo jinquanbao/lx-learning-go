@@ -1,4 +1,4 @@
-package excel
+package excelutil
 
 import (
 	"fmt"
@@ -9,9 +9,10 @@ import (
 )
 
 type readWorkbookOption struct {
-	filePath string
-	reader   io.Reader
-	options  []excelize.Options
+	filePath         string
+	reader           io.Reader
+	options          []excelize.Options
+	DisableAutoClose bool
 }
 
 func (r *readWorkbookOption) Validate() error {
@@ -22,11 +23,14 @@ func (r *readWorkbookOption) Validate() error {
 }
 
 type readSheetOption struct {
-	SheetNo          int
-	SheetName        string
-	TitleRow         int
-	TitleBeginColumn int
-	Dest             interface{}
+	SheetNo                     int
+	SheetName                   string
+	TitleRow                    int
+	TitleBeginColumn            int
+	ContentBeginRow             int
+	Dest                        interface{}
+	DisableAutoMatchTitleLength bool
+	TimeTitles                  []string
 }
 
 func (r *readSheetOption) Validate(file *excelize.File) error {

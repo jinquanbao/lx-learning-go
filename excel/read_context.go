@@ -1,4 +1,4 @@
-package excel
+package excelutil
 
 import "github.com/xuri/excelize/v2"
 
@@ -12,6 +12,7 @@ type ReadSheetContext interface {
 	SheetName() string
 	TitleRow() int
 	TitleBeginColumn() int
+	FieldNames() []string
 }
 
 type ReadCellContext interface {
@@ -19,6 +20,7 @@ type ReadCellContext interface {
 	Sheet() ReadSheetContext
 	RowIndex() int
 	ColumnIndex() int
+	LastColumnIndex() int
 	TitleName() string
 	CellValue() string
 }
@@ -33,6 +35,7 @@ type readSheetContextOption struct {
 	sheetName        string
 	titleRow         int
 	titleBeginColumn int
+	fieldNames       []string
 }
 
 type readCellContextOption struct {
@@ -40,6 +43,7 @@ type readCellContextOption struct {
 	readSheetContext *readSheetContextOption
 	rowIndex         int
 	columnIndex      int
+	lastColumnIndex  int
 	titleName        string
 	cellValue        string
 }
@@ -68,6 +72,10 @@ func (r *readSheetContextOption) TitleBeginColumn() int {
 	return r.titleBeginColumn
 }
 
+func (r *readSheetContextOption) FieldNames() []string {
+	return r.fieldNames
+}
+
 func (r *readCellContextOption) File() *excelize.File {
 	return r.file
 }
@@ -82,6 +90,10 @@ func (r *readCellContextOption) RowIndex() int {
 
 func (r *readCellContextOption) ColumnIndex() int {
 	return r.columnIndex
+}
+
+func (r *readCellContextOption) LastColumnIndex() int {
+	return r.lastColumnIndex
 }
 
 func (r *readCellContextOption) TitleName() string {
